@@ -157,13 +157,13 @@ class TestReviewRequest:
 
     def test_review_request_validation_fails_no_input(self):
         """Test ReviewRequest validation fails with no input."""
-        request = ReviewRequest()
-        assert request.validate_input() is False
+        with pytest.raises(ValidationError):
+            ReviewRequest()
 
     def test_review_request_validation_fails_incomplete_pr(self):
         """Test ReviewRequest validation fails with incomplete PR info."""
-        request = ReviewRequest(pr_id=123)  # Missing repo
-        assert request.validate_input() is False
+        with pytest.raises(ValidationError):
+            ReviewRequest(pr_id=123)  # Missing repo
 
 
 class TestReviewResponse:

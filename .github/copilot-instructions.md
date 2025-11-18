@@ -16,6 +16,7 @@
 - ✅ Use in-memory storage, env vars, or minimal JSON files.
 
 **For this project**:
+
 - Skip fancy caching layers unless PR review latency becomes a blocker.
 - Don't add authentication/authorization unless explicitly in requirements.
 - Avoid "future-proof" config structures; use what you need now.
@@ -27,6 +28,7 @@
 **Rule**: Each module/class should have one clear responsibility. If a function/class does multiple things, split it.
 
 **Layers**:
+
 - **GitHub layer** (`src/app/github/`): Fetch PRs, diffs, handle tokens. Only GitHub logic here.
 - **Parsing layer** (`src/app/diff/`): Convert raw diff into structured `FileDiff` objects. No LLM calls, no GitHub here.
 - **Agent layer** (`src/app/agents/`): Core reasoning. Agents receive structured data, return structured `ReviewComment` objects.
@@ -34,6 +36,7 @@
 - **Logging & config** (`src/app/core/`): Settings, logging setup, observability hooks.
 
 **Example of bad SoC**:
+
 ```python
 def review_pr(pr_id, github_token, model_key):
     # Fetch from GitHub
@@ -48,6 +51,7 @@ def review_pr(pr_id, github_token, model_key):
 ```
 
 **Example of good SoC**:
+
 ```python
 # GitHub handler
 pr = github_client.get_pr(pr_id)
@@ -77,6 +81,7 @@ return ReviewResponse(comments=review_comments)
 - ✅ Use request IDs in logs and link them in Prometheus metrics.
 
 **For this project**:
+
 - Agents are simple functions/classes: `async def logic_agent(chunk: CodeChunk) -> ReviewComment`.
 - Agent manager is a simple orchestrator: loop through agents, collect results, deduplicate.
 - No complex queues, caching, or retry logic (unless absolutely needed).
@@ -95,6 +100,7 @@ return ReviewResponse(comments=review_comments)
 - ✅ Load from `Settings` and pass as dependencies.
 
 **Example of bad DRY**:
+
 ```python
 @app.post("/review/pr")
 def review_pr(pr_id: int, repo: str):
@@ -110,6 +116,7 @@ def get_pr(pr_id: int):
 ```
 
 **Example of good DRY**:
+
 ```python
 def log_pr_event(pr_id: int, event: str, **extra):
     logger.info("PR event", extra={**extra, "pr_id": pr_id, "event": event})
@@ -150,17 +157,19 @@ def get_pr(pr_id: int):
 - ✅ One clear responsibility per function (SoC helps here).
 - ✅ Keep functions short (<30 lines ideally).
 - ✅ Use early returns to reduce nesting:
+
   ```python
   if not file_has_changed:
       return []
-  
+
   # Main logic here...
   ```
+
 - ✅ Use docstrings for **why**, not **what** (types already show what).
   ```python
   async def logic_agent(chunk: CodeChunk) -> ReviewComment:
       """Analyze code for logical flaws.
-      
+
       Uses multi-step reasoning to catch subtle bugs in control flow.
       """
   ```
@@ -168,14 +177,16 @@ def get_pr(pr_id: int):
 #### Constants & Config
 
 - ✅ Extract magic numbers:
+
   ```python
   MAX_CHUNK_SIZE = 1000
   REASONING_DEPTH = 3
-  
+
   def process_chunk(chunk):
       if len(chunk) > MAX_CHUNK_SIZE:
           split_chunk(chunk)
   ```
+
 - ✅ Use enums for state/levels:
   ```python
   class Severity(str, Enum):
@@ -234,7 +245,7 @@ from abc import ABC, abstractmethod
 
 class ReviewAgent(ABC):
     """Base class for specialized review agents."""
-    
+
     @abstractmethod
     async def analyze(self, chunk: CodeChunk) -> list[ReviewComment]:
         """Return review comments for a code chunk."""
@@ -243,21 +254,21 @@ class ReviewAgent(ABC):
 # agents/logic.py
 class LogicAgent(ReviewAgent):
     """Detects logical flaws in code."""
-    
+
     def __init__(self, llm_client):
         self.llm = llm_client
-    
+
     async def analyze(self, chunk: CodeChunk) -> list[ReviewComment]:
         """Analyze for control flow, edge case, and logic issues."""
         prompt = self._build_prompt(chunk)
         response = await self.llm.reason(prompt)
         return self._parse_response(response)
-    
+
     def _build_prompt(self, chunk: CodeChunk) -> str:
         """Build prompt for LLM."""
         return f"""Analyze this code for logical errors:
 {chunk.new_code}"""
-    
+
     def _parse_response(self, response: str) -> list[ReviewComment]:
         """Parse LLM response into structured comments."""
         # Parse and return
@@ -266,10 +277,10 @@ class LogicAgent(ReviewAgent):
 # agents/manager.py
 class AgentManager:
     """Orchestrates multiple agents."""
-    
+
     def __init__(self, agents: dict[str, ReviewAgent]):
         self.agents = agents
-    
+
     async def review(self, chunks: list[CodeChunk]) -> list[ReviewComment]:
         """Run all agents and consolidate results."""
         all_comments = []
@@ -277,9 +288,9 @@ class AgentManager:
             for agent_name, agent in self.agents.items():
                 comments = await agent.analyze(chunk)
                 all_comments.extend(comments)
-        
+
         return self._deduplicate_and_rank(all_comments)
-    
+
     def _deduplicate_and_rank(self, comments: list[ReviewComment]) -> list[ReviewComment]:
         """Remove duplicates, rank by severity."""
         # Dedupe logic
@@ -302,20 +313,20 @@ async def review_pr(
     agent_manager: AgentManager = Depends(get_agent_manager)
 ) -> ReviewResponse:
     """Review a PR via GitHub API or manual diff."""
-    
+
     # Validate request
     if not request.pr_id and not request.diff:
         raise ValueError("Provide either pr_id or diff")
-    
+
     # Fetch and parse
     if request.pr_id:
         diff = await github_client.get_diff(request.pr_id, request.repo)
     else:
         diff = request.diff
-    
+
     chunks = diff_parser.parse(diff)
     comments = await agent_manager.review(chunks)
-    
+
     return ReviewResponse(pr_id=request.pr_id, comments=comments)
 ```
 
@@ -328,7 +339,7 @@ from logging import LogRecord
 
 class StructuredFormatter(logging.Formatter):
     """Outputs JSON logs with context."""
-    
+
     def format(self, record: LogRecord) -> str:
         log_data = {
             "timestamp": self.formatTime(record),
@@ -371,7 +382,6 @@ logger.info("Review started", extra={"pr_id": 123})
 - [ ] No copy-paste logic; extracted to utilities or base classes.
 - [ ] Docstrings explain **why**, not **what** (types show what).
 
-
 ---
 
 ## Test-Driven Development (TDD) & Docker-First Approach
@@ -381,11 +391,13 @@ logger.info("Review started", extra={"pr_id": 123})
 **Rule**: Write tests BEFORE implementation. Every feature must have tests that fail first, then pass.
 
 #### TDD Workflow:
+
 1. **Red**: Write a failing test that defines the desired behavior
 2. **Green**: Write minimal code to make the test pass
 3. **Refactor**: Clean up code while keeping tests green
 
 #### Testing Requirements:
+
 - ✅ **Unit tests** for all models, parsers, agents, and utilities
 - ✅ **Integration tests** for API endpoints and multi-component workflows
 - ✅ **Mocked external dependencies** (GitHub API, LLM APIs) in tests
@@ -393,6 +405,7 @@ logger.info("Review started", extra={"pr_id": 123})
 - ✅ **Test isolation**: Each test should be independent and idempotent
 
 #### Test Structure:
+
 ```python
 # tests/test_models.py
 def test_code_chunk_creation():
@@ -415,6 +428,7 @@ def test_code_chunk_validation_fails():
 ```
 
 #### What to Test:
+
 - ✅ Pydantic model validation (valid and invalid inputs)
 - ✅ Model properties and computed fields
 - ✅ Parser logic (diff parsing, language detection)
@@ -425,6 +439,7 @@ def test_code_chunk_validation_fails():
 - ✅ Error handling and edge cases
 
 #### What NOT to Test:
+
 - ❌ Third-party library internals (FastAPI, Pydantic)
 - ❌ External APIs directly (mock them instead)
 - ❌ Trivial getters/setters without logic
@@ -444,13 +459,13 @@ def test_code_chunk_validation_fails():
 
 #### When to Use Docker vs UV Directly:
 
-| Task | Use Docker | Use UV Directly | Reasoning |
-|------|-----------|-----------------|-----------|
-| Running app | ✅ Always | ❌ No | Ensures environment consistency |
-| Running tests | ✅ Primary | ✅ Local quick checks | Docker = production-like, UV = fast iteration |
-| Installing deps | ✅ Via Dockerfile | ✅ Local dev | Both needed, Docker for final build |
-| Linting/formatting | ✅ In CI/CD | ✅ Pre-commit hooks | Local speed, Docker for consistency |
-| Debugging | ❌ Harder | ✅ Easier | UV for breakpoints, Docker for integration |
+| Task               | Use Docker        | Use UV Directly       | Reasoning                                     |
+| ------------------ | ----------------- | --------------------- | --------------------------------------------- |
+| Running app        | ✅ Always         | ❌ No                 | Ensures environment consistency               |
+| Running tests      | ✅ Primary        | ✅ Local quick checks | Docker = production-like, UV = fast iteration |
+| Installing deps    | ✅ Via Dockerfile | ✅ Local dev          | Both needed, Docker for final build           |
+| Linting/formatting | ✅ In CI/CD       | ✅ Pre-commit hooks   | Local speed, Docker for consistency           |
+| Debugging          | ❌ Harder         | ✅ Easier             | UV for breakpoints, Docker for integration    |
 
 #### Docker Compose Structure:
 
@@ -459,13 +474,13 @@ services:
   api:
     build: .
     volumes:
-      - ./src:/app/src:ro  # Read-only for safety
+      - ./src:/app/src:ro # Read-only for safety
       - ./tests:/app/tests:ro
     environment:
-      - LOG_FORMAT=console  # Pretty logs in dev
+      - LOG_FORMAT=console # Pretty logs in dev
     depends_on:
       - prometheus
-  
+
   api-test:
     build: .
     command: pytest tests/ -v --cov=src
@@ -493,7 +508,7 @@ docker-compose run --rm api pytest --cov=src --cov-report=html
 docker-compose run --rm api ruff check src/
 
 # Format code
-docker-compose run --rm api black src/ tests/
+docker-compose run --rm api ruff format src/ tests/
 
 # Type check
 docker-compose run --rm api mypy src/
@@ -509,6 +524,7 @@ docker-compose down -v
 ```
 
 #### Benefits of Docker-First:
+
 - ✅ **Reproducibility**: Same environment everywhere (dev, CI, prod)
 - ✅ **Isolation**: No conflicts with system Python or other projects
 - ✅ **Multi-service**: Easy to add Prometheus, Grafana, databases
@@ -523,7 +539,7 @@ docker-compose down -v
 - [ ] All tests pass: `docker-compose run --rm api pytest`
 - [ ] Coverage ≥80%: `docker-compose run --rm api pytest --cov=src`
 - [ ] No linting errors: `docker-compose run --rm api ruff check src/`
-- [ ] Code formatted: `docker-compose run --rm api black --check src/`
+- [ ] Code formatted: `docker-compose run --rm api ruff format --check src/`
 - [ ] Type checks pass: `docker-compose run --rm api mypy src/`
 - [ ] Docker build succeeds: `docker-compose build`
 - [ ] Health check works: `curl http://localhost:8000/health`
@@ -607,4 +623,3 @@ jobs:
 6. **Use fixtures**: Share test data and setup
 7. **Fast feedback**: Tests should run in <10 seconds
 8. **Docker = truth**: If it works in Docker, it works in production
-

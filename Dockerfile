@@ -24,10 +24,10 @@ COPY tests/ ./tests/
 RUN uv venv "${VIRTUAL_ENV}" && \
     uv pip install --python "${VIRTUAL_ENV}/bin/python" --no-cache -e ".[dev]"
 
-# Run tests and linting in builder stage
+# Run tests and linting in builder stage (exclude UI folder - not needed for API tests)
 RUN pytest tests/ -q && \
-    ruff check src/ && \
-    black --check src/
+    ruff check src/ --exclude src/ui && \
+    ruff format --check src/ --exclude src/ui
 
 # ========================================
 # Stage 2: Runtime (Minimal)

@@ -25,9 +25,7 @@ class AgentOrchestrator:
         if tasks:
             results = await asyncio.gather(*tasks)
 
-        all_comments: list[ReviewComment] = [
-            comment for batch in results for comment in batch
-        ]
+        all_comments: list[ReviewComment] = [comment for batch in results for comment in batch]
 
         # Deduplicate comments by hash/equality
         unique: dict[ReviewComment, ReviewComment] = {}
@@ -35,4 +33,3 @@ class AgentOrchestrator:
             unique[comment] = comment
 
         return list(unique.values())
-

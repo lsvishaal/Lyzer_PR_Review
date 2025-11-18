@@ -28,7 +28,8 @@ A production-grade FastAPI application that automatically reviews GitHub Pull Re
 - **GitHub Integration**
   - Fetch PRs directly from GitHub API
   - Parse diffs into structured format
-  - Support for manual diff input
+  - Retrieve files, commits, and patch metadata per PR
+  - Support for manual diff input and local CLI workflows
 
 ---
 
@@ -72,10 +73,13 @@ src/
 
 ### Prerequisites
 
-- Python 3.12+
-- UV package manager
-- GitHub Personal Access Token (for PR fetching)
-- OpenAI API Key (for LLM agents)
+- **Python 3.12+** (for local development)
+- **UV package manager** (modern Python packaging tool)
+- **Docker & Docker Compose** (recommended for full deployment)
+- **GitHub Personal Access Token** (optional for public repos, required for private)
+- **Ollama** (runs locally in Docker, no external API keys needed)
+
+> **Note:** This system uses **Ollama** (local LLM) instead of cloud APIs like OpenAI. All inference happens on your machine - no data leaves your network.
 
 ### Installation
 
@@ -110,7 +114,285 @@ The API will be available at `http://localhost:8000`
 
 ---
 
-## 📚 API Documentation
+## � GitHub CLI Utilities
+
+Use the helper script in `scripts/github_tools.py` to explore repository metadata and diff content without starting the API server.
+
+```bash
+# List open PRs for a repository
+uv run python scripts/github_tools.py list octocat/hello-world
+
+# Fetch diff, files, commits, or patch content for a specific PR
+uv run python scripts/github_tools.py diff octocat/hello-world 1347
+uv run python scripts/github_tools.py files octocat/hello-world 1347
+uv run python scripts/github_tools.py commits octocat/hello-world 1347
+uv run python scripts/github_tools.py patch octocat/hello-world 1347
+```
+
+All commands use the same environment configuration as the API (e.g., `GITHUB_TOKEN`, `GITHUB_API_URL`). Add `--output <file>` to save responses to disk, and `--per-page` / `--page` for pagination-aware commands.
+
+---
+
+## � Operational Modes
+
+This system supports two distinct operational modes:
+
+### 1. GitHub PR Mode (Requires GitHub Token)
+**Use Case:** Review actual Pull Requests from GitHub repositories
+
+**Requirements:**
+- Valid `GITHUB_TOKEN` in `.env` file
+- Network access to github.com
+- Repository access (public repos work with no token, private require PAT with `repo` scope)
+
+**API Request:**
+```json
+{
+  "repo": "owner/repository",
+  "pr_id": 123
+}
+```
+
+**What Happens:**
+1. Fetches PR metadata from GitHub REST API
+2. Downloads the unified diff
+3. Parses changed files
+4. Filters supported languages
+5. Runs multi-agent review
+6. Returns structured comments
+
+### 2. Manual Diff Mode (Fully Offline)
+**Use Case:** Review code changes without GitHub (local dev, git hooks, other VCS)
+
+**Requirements:**
+- None! Works completely offline
+- No GitHub token needed
+- No network access required
+
+**API Request:**
+```json
+{
+  "diff": "diff --git a/file.py b/file.py\n--- a/file.py\n+++ b/file.py\n..."
+}
+```
+
+**What Happens:**
+1. Parses the provided diff string
+2. Same filtering and review as GitHub mode
+3. Returns structured comments
+
+---
+
+## 🌍 Supported Languages & Scope
+
+### Fully Supported Languages
+The agents are optimized for these languages and provide high-quality reviews:
+
+- **Python** (`.py`)
+- **JavaScript** (`.js`, `.jsx`, `.mjs`)
+- **TypeScript** (`.ts`, `.tsx`)
+- **Java** (`.java`)
+- **Go** (`.go`)
+- **Rust** (`.rs`)
+- **C/C++** (`.c`, `.cpp`, `.h`, `.hpp`)
+- **C#** (`.cs`)
+- **Ruby** (`.rb`)
+- **PHP** (`.php`)
+- **Swift** (`.swift`)
+- **Kotlin** (`.kt`, `.kts`)
+- **Scala** (`.scala`)
+
+### Automatically Ignored
+- **Binary files** (images, PDFs, archives, executables)
+- **Deleted files** (nothing to review)
+- **Unsupported file types** (reported in `ignored_files` field)
+- **Empty changes** (0 additions/deletions)
+
+### Diff Size Limits
+To ensure reasonable performance and avoid LLM context limits:
+
+- **Max diff size:** 500 KB (configurable via `MAX_DIFF_SIZE_BYTES`)
+- **Max lines:** 10,000 lines (configurable via `MAX_DIFF_LINES`)
+
+**What happens when limits are exceeded:**
+- API returns `413 Payload Too Large`
+- Clear error message: "Diff exceeds maximum size of X KB/lines"
+- Suggestion: Review smaller PRs or split into multiple reviews
+
+---
+
+## 🔐 Security & Best Practices
+
+### Secret Management
+✅ **DO**:
+- Store all secrets in `.env` file (never committed to git)
+- Use environment variables for tokens and API keys
+- Rotate GitHub tokens regularly
+- Use minimal required token scopes
+
+❌ **DON'T**:
+- Hardcode tokens in source code
+- Commit `.env` to version control
+- Share tokens in logs or API responses
+- Use tokens with excessive permissions
+
+### GitHub Token Scopes
+**Recommended minimal scopes:**
+- **Public repositories**: No token needed (rate-limited to 60 req/hr)
+- **Private repositories**: `repo` scope (read access to code)
+
+**How to create a token:**
+1. Go to https://github.com/settings/tokens
+2. Click "Generate new token (classic)"
+3. Give it a descriptive name: "PR Review Agent - Read Only"
+4. Select scopes:
+   - For private repos: `repo` (full control) OR `repo:status` + `public_repo`
+   - For public only: No scopes needed (just create the token)
+5. Set expiration (30-90 days recommended)
+6. Copy token immediately (shown only once)
+7. Add to `.env`: `GITHUB_TOKEN=ghp_your_token_here`
+
+### Log Security
+This system automatically protects sensitive data:
+
+- **GitHub tokens**: Never logged or returned in API responses
+- **Full diffs**: Truncated in logs (first 200 chars only)
+- **Sensitive patterns**: Auto-redacted (passwords, API keys in code)
+- **Structured logging**: All logs are JSON with consistent fields for auditing
+
+### Network Security
+- All GitHub API calls use HTTPS
+- No external LLM APIs (Ollama runs locally)
+- Docker network isolation between services
+- Non-root containers for all services
+
+---
+
+## ⚠️ Error Handling & Failure Modes
+
+### Common Errors & Solutions
+
+#### 422 Validation Error
+**Symptom:** `{"detail": "Must provide either 'pr_id' + 'repo' OR 'diff'"}`
+**Cause:** Missing or invalid request body
+**Solution:** Provide either `pr_id` + `repo` (GitHub mode) OR `diff` (manual mode)
+
+#### 404 PR Not Found
+**Symptom:** `{"detail": "PR #123 not found in owner/repo"}`
+**Causes:**
+- PR doesn't exist
+- Repository doesn't exist
+- No access to private repo (check token)
+**Solution:** Verify PR exists and token has access
+
+#### 401/403 GitHub Authentication
+**Symptom:** `{"detail": "GitHub authentication failed: invalid token or insufficient permissions"}`
+**Causes:**
+- Invalid token
+- Expired token
+- Insufficient scopes (need `repo` for private repos)
+**Solution:** Check token and scopes at https://github.com/settings/tokens
+
+#### 413 Diff Too Large
+**Symptom:** `{"detail": "Diff exceeds maximum size of 500 KB"}`
+**Cause:** PR is too large (massive file changes)
+**Solution:** 
+- Review smaller PRs
+- Split PR into multiple smaller PRs
+- Increase limits via env vars (may cause LLM timeouts)
+
+#### 502 LLM Unavailable
+**Symptom:** `{"detail": "LLM backend unavailable"}`
+**Causes:**
+- Ollama container not running
+- Ollama not responding (OOM, crashed)
+- Network issues between API and Ollama
+**Solution:**
+- Check Ollama health: `docker logs ollama`
+- Restart: `docker-compose restart ollama`
+- Pull model if missing: `docker exec -it ollama ollama pull qwen2.5-coder:3b`
+
+#### Streamlit "API Unreachable"
+**Symptom:** Red banner in Streamlit UI
+**Causes:**
+- API container not healthy
+- Network issue in Docker
+**Solution:**
+- Check API health: `curl http://localhost:8000/health`
+- View logs: `docker logs pr-review-api`
+- Restart: `docker-compose restart api`
+
+---
+
+## 🐳 Docker Deployment (Recommended)
+
+### Quick Start with Docker Compose
+
+```bash
+# 1. Create .env file
+cp .env.example .env
+# Edit .env and add GITHUB_TOKEN if using GitHub mode
+
+# 2. Build and start all services
+docker-compose up --build -d
+
+# 3. Pull the LLM model (first time only - takes 2-3 minutes)
+docker exec -it ollama ollama pull qwen2.5-coder:3b
+
+# 4. Check all services are healthy
+docker-compose ps
+
+# 5. Access the services
+# - Streamlit UI: http://localhost:8501
+# - Swagger API: http://localhost:8000/docs
+# - Prometheus: http://localhost:9090
+# - Grafana: http://localhost:3000 (admin/admin)
+```
+
+### Services Overview
+
+| Service | Port | Purpose | Health Check |
+|---------|------|---------|--------------|
+| **Ollama** | 11434 | Local LLM (qwen2.5-coder:3b) | `/api/tags` |
+| **API** | 8000 | FastAPI backend | `/health` |
+| **Streamlit** | 8501 | Web UI | `/_stcore/health` |
+| **Prometheus** | 9090 | Metrics collection | `/-/healthy` |
+| **Grafana** | 3000 | Dashboard visualization | `/api/health` |
+
+### Checking Service Health
+
+```bash
+# All services status
+docker-compose ps
+
+# Individual service logs
+docker logs pr-review-api -f
+docker logs pr-review-streamlit -f
+docker logs ollama -f
+
+# Check API health directly
+curl http://localhost:8000/health
+
+# Check Streamlit health
+curl http://localhost:8501/_stcore/health
+```
+
+### Stopping & Cleaning Up
+
+```bash
+# Stop all services
+docker-compose down
+
+# Stop and remove volumes (clean slate)
+docker-compose down -v
+
+# Remove unused Docker resources
+docker system prune -f
+```
+
+---
+
+## �📚 API Documentation
 
 ### Interactive Docs
 
@@ -139,6 +421,104 @@ Version and configuration information.
 #### `GET /metrics`
 Prometheus metrics endpoint.
 
+#### `POST /review/pr`
+Run a PR review either by providing a GitHub PR reference or a raw unified diff.
+
+**Request Body**
+```json
+{
+  "pr_id": 1347,
+  "repo": "octocat/hello-world"
+}
+```
+Or manual diff input:
+```json
+{
+  "diff": "diff --git a/file.py b/file.py\n..."
+}
+```
+
+**Successful Response**
+```json
+{
+  "pr_id": 1347,
+  "repo": "octocat/hello-world",
+  "total_issues": 1,
+  "critical_count": 0,
+  "warning_count": 1,
+  "info_count": 0,
+  "comments": [
+    {
+      "file_path": "src/app/example.py",
+      "line_number": 42,
+      "severity": "warning",
+      "category": "logic",
+      "message": "Potential edge case not handled",
+      "suggestion": "Add guard for empty input",
+      "agent_name": "logic"
+    }
+  ]
+}
+```
+
+If no `pr_id`/`repo` or `diff` is supplied the endpoint responds with HTTP 400.
+
+---
+
+## 🎨 Streamlit Web UI
+
+For a user-friendly interface, access the Streamlit app at **http://localhost:8501** (when running via Docker Compose).
+
+### Features
+- **🔴 Red Review Button**: Prominent call-to-action for initiating reviews
+- **Two Input Modes**:
+  - **📦 GitHub PR Tab**: Enter `owner/repo` and PR number
+  - **📝 Manual Diff Tab**: Paste any unified diff directly
+- **Visual Issue Display**: Color-coded cards for each issue
+  - 🔴 Critical issues (red background)
+  - ⚠️ Warnings (yellow background)
+  - ℹ️ Info (blue background)
+- **API Health Status**: Real-time connection indicator in sidebar
+- **Responsive Design**: Works on desktop and tablet
+
+### Usage
+
+#### GitHub PR Review
+1. Navigate to the **📦 GitHub PR** tab
+2. Enter repository (e.g., `octocat/hello-world`)
+3. Enter PR number (e.g., `1347`)
+4. Click the **🔴 Review PR** button
+5. View categorized issues with file paths and suggestions
+
+#### Manual Diff Review
+1. Navigate to the **📝 Manual Diff** tab
+2. Paste your unified diff (from `git diff`, `git show`, etc.)
+3. Click the **🔴 Review Diff** button
+4. View categorized issues with line numbers and suggestions
+
+### Example Diff Input
+```diff
+diff --git a/src/app/example.py b/src/app/example.py
+index 1234567..abcdefg 100644
+--- a/src/app/example.py
++++ b/src/app/example.py
+@@ -10,7 +10,7 @@ def process_data(items):
+     for item in items:
+-        if item is not None:
++        if item:
+             results.append(item * 2)
+     return results
+```
+
+### Screenshots
+The UI displays:
+- **Header**: "🤖 PR Review Agent" with tagline
+- **Input Section**: Tabs for GitHub PR or manual diff
+- **Review Button**: Large red button with "Review PR" or "Review Diff" text
+- **Results Section**: Grouped by severity (Critical → Warning → Info)
+- **Issue Cards**: Show file path, line number, category, message, and suggestion
+- **Sidebar**: API health status (green ✅ / red ❌)
+
 ---
 
 ## 🔧 Configuration
@@ -149,19 +529,27 @@ Configuration is managed through environment variables. See `.env.example` for a
 
 ```bash
 # GitHub
-GITHUB_TOKEN=your_token_here
+GITHUB_TOKEN=your_token_here          # Optional for public repos, required for private
+GITHUB_API_URL=https://api.github.com
+GITHUB_TIMEOUT=15.0
+GITHUB_USER_AGENT=Lyzer-PR-Review-Agent/0.1.0
 
-# OpenAI
-OPENAI_API_KEY=your_key_here
-OPENAI_MODEL=gpt-4
+# Ollama (Local LLM)
+OLLAMA_BASE_URL=http://ollama:11434   # Docker service name (use localhost:11434 for local dev)
+OLLAMA_MODEL=qwen2.5-coder:3b         # Fast 3B parameter model for code review
+OLLAMA_TIMEOUT=120.0                  # Generous timeout for reasoning
 
 # Logging
-LOG_LEVEL=info
-LOG_FORMAT=json  # or "console" for development
+LOG_LEVEL=info                        # debug, info, warning, error
+LOG_FORMAT=json                       # json (production) or console (development)
 
 # Server
 PORT=8000
 DEBUG=false
+
+# Diff Limits (optional overrides)
+MAX_DIFF_SIZE_BYTES=524288            # 500 KB default
+MAX_DIFF_LINES=10000                  # 10K lines default
 ```
 
 ---
@@ -179,36 +567,6 @@ Run with coverage:
 ```bash
 uv run pytest --cov=src --cov-report=html
 ```
-
----
-
-## 🐳 Docker
-
-### Build
-
-```bash
-docker build -t lyzer-pr-review:latest .
-```
-
-### Run
-
-```bash
-docker run -p 8000:8000 \
-  -e GITHUB_TOKEN=your_token \
-  -e OPENAI_API_KEY=your_key \
-  lyzer-pr-review:latest
-```
-
-### Docker Compose
-
-```bash
-docker-compose up --build
-```
-
-This starts:
-- FastAPI application on port 8000
-- Prometheus on port 9090
-- Grafana on port 3000
 
 ---
 
@@ -232,18 +590,23 @@ Pre-configured dashboards include:
 
 ---
 
-## ��️ Development
+## 🛠️ Development
 
 ### Code Quality
 
 ```bash
-# Format code
-uv run black src/ tests/
+# Format code (Ruff replaces Black)
+uv run ruff format src/ tests/
 
 # Lint
 uv run ruff check src/ tests/
 
 # Type check
+uv run mypy src/
+
+# Run all checks (pre-commit style)
+uv run ruff format --check src/ tests/ && \
+uv run ruff check src/ tests/ && \
 uv run mypy src/
 ```
 
@@ -268,16 +631,25 @@ Lyzer_PR_Review/
 │       ├── core/             # Configuration & logging
 │       ├── diff/             # Diff parsing
 │       ├── github/           # GitHub integration
+│       ├── llm/              # LLM client (Ollama)
 │       ├── models/           # Pydantic models
+│       ├── ui/               # Streamlit web interface
 │       └── main.py           # FastAPI app
 ├── tests/                    # Test suite
+│   ├── unit/                # Unit tests
+│   ├── integration/         # Integration tests
+│   └── fixtures/            # Test data
 ├── docker/                   # Docker configs
+├── grafana/                  # Grafana dashboards & datasources
 ├── scripts/                  # Utility scripts
-├── .github/                  # Documentation
+├── .docs/                    # Additional documentation (excluded from git)
+├── .github/                  # Core guidelines
 ├── pyproject.toml           # Dependencies
-├── Dockerfile               # Production image
-└── docker-compose.yml       # Multi-service setup
+├── Dockerfile               # Multi-stage production image
+└── docker-compose.yml       # 5-service orchestration
 ```
+
+> **Note**: Additional implementation documentation and progress tracking files are available in `.docs/` folder (excluded from version control for cleaner repository structure).
 
 ---
 

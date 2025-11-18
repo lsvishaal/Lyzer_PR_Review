@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     # GitHub
     github_token: str | None = None
     github_api_url: str = "https://api.github.com"
+    github_timeout: float = 15.0
+    github_user_agent: str = "Lyzer-PR-Review-Agent/0.1.0"
 
     # LLM / AI
     # Ollama (local, default)
@@ -40,6 +42,45 @@ class Settings(BaseSettings):
     max_chunk_size: int = 1000
     reasoning_depth: int = 3
     enable_parallel_agents: bool = True
+
+    # Diff Processing
+    max_diff_size_bytes: int = 500000  # 500KB limit
+    max_diff_lines: int = 10000  # Maximum lines in diff
+    supported_languages: list[str] = [
+        "python",
+        "javascript",
+        "typescript",
+        "java",
+        "go",
+        "rust",
+        "c",
+        "cpp",
+        "csharp",
+        "ruby",
+        "php",
+        "swift",
+        "kotlin",
+    ]  # Languages to review
+    supported_extensions: list[str] = [
+        ".py",
+        ".js",
+        ".ts",
+        ".jsx",
+        ".tsx",
+        ".java",
+        ".go",
+        ".rs",
+        ".c",
+        ".cpp",
+        ".cc",
+        ".h",
+        ".hpp",
+        ".cs",
+        ".rb",
+        ".php",
+        ".swift",
+        ".kt",
+    ]
 
     # Monitoring
     enable_metrics: bool = True

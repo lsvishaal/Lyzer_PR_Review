@@ -73,10 +73,10 @@ def log_request(request_id: str, **extra: Any) -> None:
     logger.info("request", request_id=request_id, **extra)
 
 
-def log_pr_event(pr_id: int, event: str, **extra: Any) -> None:
+def log_pr_event(pr_id: int, event_name: str, **extra: Any) -> None:
     """Log PR-related event with context."""
     logger = get_logger(__name__)
-    logger.info("pr_event", pr_id=pr_id, event=event, **extra)
+    logger.info("pr_event", pr_id=pr_id, event_name=event_name, **extra)
 
 
 def log_agent_execution(agent_name: str, duration_ms: float, **extra: Any) -> None:

@@ -7,7 +7,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 
-from .core import get_logger, get_settings, setup_logging
+from src.app.api.review import router as review_router
+from src.app.core import get_logger, get_settings, setup_logging
 
 
 @asynccontextmanager
@@ -48,6 +49,8 @@ app.add_middleware(
 settings = get_settings()
 if settings.enable_metrics:
     Instrumentator().instrument(app).expose(app, endpoint="/metrics")
+
+app.include_router(review_router)
 
 
 @app.get("/")

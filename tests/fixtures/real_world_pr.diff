@@ -1,0 +1,33 @@
+diff --git a/src/app/utils.py b/src/app/utils.py
+index 1111111..2222222 100644
+--- a/src/app/utils.py
++++ b/src/app/utils.py
+@@ -10,6 +10,12 @@ def normalize(value: str) -> str:
+     return value.strip().lower()
+
+
+def slugify(value: str) -> str:
++    """Convert a string into a slug suitable for URLs."""
++    normalized = normalize(value)
++    pieces = [part for part in normalized.split(" ") if part]
++    return "-".join(pieces)
+
+
+diff --git a/src/app/services/cache.py b/src/app/services/cache.py
+index 3333333..4444444 100644
+--- a/src/app/services/cache.py
++++ b/src/app/services/cache.py
+@@ -1,7 +1,12 @@
+-CACHE: dict[str, str] = {}
++CACHE: dict[str, str] = {}
+
+
+def set_value(key: str, value: str) -> None:
+     """Set a cached value."""
+-    CACHE[key] = value
++    CACHE[key] = value
+
+
+def get_value(key: str) -> str | None:
++    """Return a cached value if available."""
+     return CACHE.get(key)

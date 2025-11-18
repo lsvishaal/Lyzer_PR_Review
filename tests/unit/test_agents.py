@@ -11,8 +11,8 @@ from src.app.agents import (
     SecurityAgent,
 )
 from src.app.llm.client import FakeLLMClient
-from src.app.models.code import CodeChunk
 from src.app.models.base import Language
+from src.app.models.code import CodeChunk
 from src.app.models.review import ReviewCategory, ReviewComment, Severity
 
 

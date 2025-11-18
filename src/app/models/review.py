@@ -1,6 +1,6 @@
 """Review-related models for comments and responses."""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .base import ReviewCategory, Severity
 
@@ -32,14 +32,68 @@ class ReviewComment(BaseModel):
 
 
 class ReviewRequest(BaseModel):
-    """API request for PR review."""
+    """API request for PR review.
 
-    pr_id: int | None = Field(None, description="GitHub PR ID")
-    repo: str | None = Field(None, description="Repository in format owner/repo")
-    diff: str | None = Field(None, description="Raw diff string (for manual input)")
+    Must provide EITHER:
+    - pr_id + repo (for GitHub PR review)
+    - diff (for manual diff review)
+    """
+
+    pr_id: int | None = Field(None, description="GitHub PR ID", gt=0)
+    repo: str | None = Field(
+        None,
+        description="Repository in format owner/repo",
+        pattern=r"^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$",
+    )
+    diff: str | None = Field(
+        None, description="Raw diff string (for manual input)", max_length=500000
+    )  # 500KB limit
+
+    @field_validator("diff")
+    @classmethod
+    def validate_diff_not_empty(cls, v: str | None) -> str | None:
+        """Ensure diff is not just whitespace."""
+        if v is not None and len(v.strip()) == 0:
+            raise ValueError("Diff cannot be empty or only whitespace")
+        return v
+
+    @field_validator("repo")
+    @classmethod
+    def validate_repo_format(cls, v: str | None) -> str | None:
+        """Validate repository format."""
+        if v is not None:
+            if "/" not in v:
+                raise ValueError("Repository must be in format 'owner/repo'")
+            owner, repo = v.split("/", 1)
+            if not owner or not repo:
+                raise ValueError("Repository must have both owner and repo name")
+        return v
+
+    @model_validator(mode="after")
+    def validate_input_combination(self) -> "ReviewRequest":
+        """Validate that either pr_id+repo or diff is provided, but not both."""
+        has_pr = self.pr_id is not None and self.repo is not None
+        has_diff = self.diff is not None
+
+        if has_pr and has_diff:
+            raise ValueError("Provide either 'pr_id' + 'repo' OR 'diff', not both")
+
+        if not has_pr and not has_diff:
+            raise ValueError(
+                "Must provide either 'pr_id' + 'repo' for GitHub PR review, "
+                "or 'diff' for manual diff review"
+            )
+
+        if self.pr_id is not None and self.repo is None:
+            raise ValueError("'pr_id' requires 'repo' to be specified")
+
+        if self.repo is not None and self.pr_id is None:
+            raise ValueError("'repo' requires 'pr_id' to be specified")
+
+        return self
 
     def validate_input(self) -> bool:
-        """Validate that either pr_id+repo or diff is provided."""
+        """Legacy method for backwards compatibility."""
         has_pr = self.pr_id is not None and self.repo is not None
         has_diff = self.diff is not None and len(self.diff.strip()) > 0
         return has_pr or has_diff
@@ -55,6 +109,9 @@ class ReviewResponse(BaseModel):
     critical_count: int = Field(default=0, description="Number of critical issues")
     warning_count: int = Field(default=0, description="Number of warnings")
     info_count: int = Field(default=0, description="Number of info items")
+    ignored_files: list[str] = Field(
+        default_factory=list, description="Files ignored (binary or unsupported language)"
+    )
 
     def __init__(self, **data):
         """Initialize and calculate counts."""

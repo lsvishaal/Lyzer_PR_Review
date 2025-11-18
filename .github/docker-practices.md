@@ -36,7 +36,7 @@ RUN uv venv .venv && \
 COPY . .
 RUN .venv/bin/pytest tests/ && \
     .venv/bin/ruff check . && \
-    .venv/bin/black --check .
+  .venv/bin/ruff format --check .
 
 # Stage 2: Runtime (Minimal)
 FROM python:3.11-slim AS runtime
@@ -282,7 +282,7 @@ COPY tests/ ./tests/
 # Run tests and linting
 RUN .venv/bin/pytest tests/ -q && \
     .venv/bin/ruff check src/ && \
-    .venv/bin/black --check src/
+  .venv/bin/ruff format --check src/
 
 # ========================================
 # Stage 2: Runtime (Minimal)

@@ -22,4 +22,3 @@ class BaseAgent(ABC):
     @abstractmethod
     async def analyze(self, chunk: CodeChunk) -> list[ReviewComment]:
         """Analyze a single code chunk and return review comments."""
-
