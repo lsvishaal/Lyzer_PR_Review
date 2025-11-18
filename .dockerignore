@@ -1,0 +1,86 @@
+# Version control
+.git/
+.gitignore
+.gitattributes
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Testing artifacts (keep tests/, but not artifacts)
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+coverage.xml
+test-results/
+
+# Type checking
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+
+# Linting
+.ruff_cache/
+
+# Logs
+*.log
+logs/
+
+# Docker
+Dockerfile
+docker-compose*.yml
+.dockerignore
+
+# Documentation (except README)
+docs/
+*.md
+!README.md
+
+# CI/CD
+.github/
+.gitlab/
+
+# Monitoring data
+prometheus_data/
+grafana_data/
+
+# OS
+Thumbs.db
+.Spotlight-V100
+.Trashes
+
+# Project specific
+*.db
+*.sqlite
+temp/
+tmp/
+main.py
+ProjectRoadmapp.md

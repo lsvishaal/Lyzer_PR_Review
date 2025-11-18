@@ -1,0 +1,120 @@
+services:
+  # Ollama (Local LLM Backend)
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"  # Expose for manual testing
+    volumes:
+      - ollama_data:/root/.ollama  # Persist downloaded models
+    healthcheck:
+      test: ["CMD", "/bin/ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+  # FastAPI Backend
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: pr-review-api
+    ports:
+      - "8000:8000"
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - LOG_FORMAT=console  # Pretty logs for dev
+      - DEBUG=${DEBUG:-false}
+      - LLM_BASE_URL=http://ollama:11434
+      - LLM_MODEL_NAME=${LLM_MODEL_NAME:-qwen2.5-coder:3b}
+      - LLM_TIMEOUT=${LLM_TIMEOUT:-60.0}
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - ENABLE_METRICS=${ENABLE_METRICS:-true}
+    volumes:
+      - ./src:/app/src:ro  # Read-only for safety (hot reload for dev)
+    depends_on:
+      ollama:
+        condition: service_healthy
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+
+  # Test runner service
+  api-test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: builder
+    container_name: pr-review-test
+    command: pytest tests/ -v --cov=src --cov-report=term-missing
+    volumes:
+      - ./src:/app/src:ro
+      - ./tests:/app/tests:ro
+      - ./test-results:/app/test-results
+    environment:
+      - PYTHONPATH=/app
+    profiles:
+      - test
+
+  # Prometheus (metrics scraper)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: pr-review-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.console.libraries=/etc/prometheus/console_libraries"
+      - "--web.console.templates=/etc/prometheus/consoles"
+      - "--web.enable-lifecycle"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  # Grafana (visualization)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: pr-review-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./grafana/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+    depends_on:
+      - prometheus
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+volumes:
+  prometheus_data:
+  grafana_data:
+  ollama_data:
+
+networks:
+  default:
+    name: pr-review-network
