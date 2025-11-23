@@ -113,6 +113,7 @@ Thumbs.db
 # Documentation (non-essential)
 # ========================================
 .docs/
+DEMO_CHECKLIST.md
 
 # ========================================
 # Project-specific
